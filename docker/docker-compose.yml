@@ -1,0 +1,29 @@
+# Demo network: N node containers on a shared bridge network.
+services:
+  node1:
+    build:
+      context: ..
+      dockerfile: docker/node.Dockerfile
+    container_name: node1
+    networks:
+      - botnet
+
+  node2:
+    build:
+      context: ..
+      dockerfile: docker/node.Dockerfile
+    container_name: node2
+    networks:
+      - botnet
+
+  node3:
+    build:
+      context: ..
+      dockerfile: docker/node.Dockerfile
+    container_name: node3
+    networks:
+      - botnet
+
+networks:
+  botnet:
+    driver: bridge
