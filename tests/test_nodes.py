@@ -1,4 +1,5 @@
 import configparser
+import uuid
 
 import pytest
 
@@ -46,6 +47,7 @@ def test_manager_info_reports_node_type_and_system_details(manager_client):
     _, client = manager_client
     body = client.get("/info").get_json()
     assert body["node_type"] == "manager"
+    assert body["node_id"]
     assert body["hostname"]
     assert body["ip_address"]
     assert body["commands_received"] == 0
@@ -56,6 +58,18 @@ def test_worker_info_reports_node_type(worker_client):
     _, client = worker_client
     body = client.get("/info").get_json()
     assert body["node_type"] == "worker"
+
+
+def test_node_id_is_generated_when_not_configured():
+    worker = Worker(make_config("worker"))
+    assert uuid.UUID(worker.node_id)
+
+
+def test_node_id_honors_configured_value():
+    config = make_config("worker")
+    config["node"]["id"] = "fixed-node-id"
+    worker = Worker(config)
+    assert worker.node_id == "fixed-node-id"
 
 
 def test_manager_status_includes_peer_lists(manager_client):

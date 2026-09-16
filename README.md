@@ -52,3 +52,52 @@ Workers receive and act upon instructions.
 
 All nodes will maintain a queue of instructions. An order will have an originating node and unique ID. A discussion between managers determines if a message has been received and acted upon. Managers will need to track which of their worker nodes have acknowledged the order and also completed the action.
 
+### Architecture (Deliverable 1)
+
+```
+                       +----------------+
+                       |    Herder      |
+                       | (human/CLI)    |
+                       +--------+-------+
+                                |
+                                | HTTP (issues orders, reads status)
+                                v
+   +----------------------------------------------------------+
+   |                        Manager Node                      |
+   |   Node (base)                                            |
+   |    - GET /health   - GET /info                           |
+   |   Manager (extends Node)                                 |
+   |    - GET /status  (node info + managers[] + workers[])   |
+   +----------------------------------------------------------+
+              |                                  |
+              | knows of (peer)                  | oversees
+              v                                  v
+   +--------------------+           +----------------------------+
+   |   Manager Node      |          |        Worker Node          |
+   |   (another cell,     |          |   Node (base)                |
+   |   hidden from this   |         |    - GET /health  - GET /info|
+   |   manager's workers) |         |   Worker (extends Node)      |
+   +--------------------+           |    - GET /status (+ manager) |
+                                     +----------------------------+
+                                                 |
+                                        oversees (1..N workers,
+                                        manager has no visibility
+                                        into peer managers' workers)
+
+  Class hierarchy:
+
+      Node
+       |-- register_routes() / health() / info() / node_info()
+       |-- get_ip_address(), parse_peer_list()
+       |
+       +-- Manager        (node_type = "manager")
+       |     managers: []   peer manager IPs (partial view only)
+       |     workers:  []   IPs of workers this manager oversees
+       |
+       +-- Worker         (node_type = "worker")
+             manager_ip: "" IP of the overseeing manager
+```
+
+Each manager only knows a subset of other managers (not the whole botnet) and only the workers it directly oversees, so no single node holds a full membership list.
+
+

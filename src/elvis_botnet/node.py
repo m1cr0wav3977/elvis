@@ -2,13 +2,22 @@ import configparser
 import logging
 import platform
 import socket
+import uuid
 from datetime import datetime, timezone
 
 from flask import Flask, jsonify
 
 
 class Node:
-    """Common base for manager and worker nodes."""
+    """Common base for manager and worker nodes.
+
+    Wraps a Flask app exposing the HTTP surface shared by every node type
+    (health check, self-reported system info) and the bookkeeping every
+    node needs regardless of role: a stable identity (``node_id``), a
+    configured static IP for the peer table, and counters for commands
+    received/completed. Subclasses (``Manager``, ``Worker``) add their own
+    routes and peer-tracking state on top of this.
+    """
 
     node_type = "node"
 
@@ -17,6 +26,8 @@ class Node:
         self.logger = logging.getLogger(__name__)
         self.hostname = socket.gethostname()
         self.static_ip = config["node"].get("ip", "")
+        # Fall back to a freshly generated GUID if the config doesn't pin one down.
+        self.node_id = config["node"].get("id") or str(uuid.uuid4())
         self.started_at = datetime.now(timezone.utc)
         self.commands_received = 0
         self.commands_completed = 0
@@ -61,6 +72,7 @@ class Node:
 
     def node_info(self) -> dict:
         return {
+            "node_id": self.node_id,
             "node_type": self.node_type,
             "hostname": self.hostname,
             "ip_address": self.get_ip_address(),

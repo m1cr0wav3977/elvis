@@ -6,7 +6,19 @@ from elvis_botnet.node import Node
 
 
 class Manager(Node):
-    """Issues orders and tracks worker/peer manager acknowledgement (herder-facing node)."""
+    """Issues orders and tracks worker/peer manager acknowledgement (herder-facing node).
+
+    A manager is the herder's point of contact: it accepts commands from a
+    human operator and coordinates a set of workers, but does not perform
+    actions itself so its presence stays hidden. It keeps two primitive
+    peer tables (see README "Architecture"):
+
+    - ``managers``: IPs of *some* other manager nodes (never the full
+      botnet, so no single node has complete membership knowledge).
+    - ``workers``: IPs of the worker nodes this manager directly oversees.
+
+    Both lists are read from the ``[peers]`` section of the node's config.
+    """
 
     node_type = "manager"
 

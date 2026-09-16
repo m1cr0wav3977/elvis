@@ -6,7 +6,13 @@ from elvis_botnet.node import Node
 
 
 class Worker(Node):
-    """Receives and acts on orders issued by a manager."""
+    """Receives and acts on orders issued by a manager.
+
+    A worker performs the actual tasks dispatched by its overseeing
+    manager. It only tracks that single manager's IP (``manager_ip``,
+    read from the ``[peers]`` config section) rather than any broader view
+    of the botnet.
+    """
 
     node_type = "worker"
 
