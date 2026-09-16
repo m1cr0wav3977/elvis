@@ -2,27 +2,34 @@
 services:
   node1:
     build:
-      context: ..
-      dockerfile: docker/node.Dockerfile
+      context: .
+      dockerfile: node.Dockerfile
     container_name: node1
     networks:
       - botnet
+    volumes:
+      - configs/node1.ini:/app/config.ini
 
   node2:
     build:
-      context: ..
-      dockerfile: docker/node.Dockerfile
+      context: .
+      dockerfile: node.Dockerfile
     container_name: node2
     networks:
       - botnet
+    volumes:
+      - configs/node2.ini:/app/config.ini
+
 
   node3:
     build:
-      context: ..
-      dockerfile: docker/node.Dockerfile
+      context: .
+      dockerfile: node.Dockerfile
     container_name: node3
     networks:
       - botnet
+    volumes:
+      - configs/node3.ini:/app/config.ini
 
 networks:
   botnet:

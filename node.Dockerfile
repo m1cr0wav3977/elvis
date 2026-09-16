@@ -5,3 +5,4 @@ WORKDIR /app
 COPY build/elvis-node ./elvis-node
 
 ENTRYPOINT ["/app/elvis-node"]
+CMD ["--config", "/app/config.ini"]
