@@ -1,0 +1,38 @@
+stages:
+  - test
+  - build
+  - publish
+
+variables:
+  IMAGE_TAG: '$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA'
+  IMAGE_LATEST: '$CI_REGISTRY_IMAGE:latest'
+
+test:
+  stage: test
+  image: python:3.11-slim
+  script:
+    - pip install -q -r requirements.txt pytest
+    - PYTHONPATH=src pytest -q
+
+build:
+  stage: build
+  image: python:3.11-slim
+  script:
+    - pip install -q -r requirements.txt -r scripts/requirements-build.txt
+    - pyinstaller --onefile --name elvis-node --distpath build --workpath .pyinstaller --specpath .pyinstaller src/elvis_botnet/main.py
+  artifacts:
+    paths:
+      - build/elvis-node
+
+publish:
+  stage: publish
+  image: docker:27.5.1-cli
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker build -f node.Dockerfile -t "$IMAGE_TAG" -t "$IMAGE_LATEST" .
+    - docker push "$IMAGE_TAG"
+    - docker push "$IMAGE_LATEST"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
