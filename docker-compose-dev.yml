@@ -6,9 +6,12 @@ services:
       dockerfile: node.Dockerfile
     container_name: node1
     networks:
-      - botnet
+      botnet:
+        ipv4_address: 172.28.0.11
+    ports:
+      - "8081:8080"
     volumes:
-      - configs/node1.ini:/app/config.ini
+      - ./configs/node1.ini:/app/config.ini
 
   node2:
     build:
@@ -16,9 +19,12 @@ services:
       dockerfile: node.Dockerfile
     container_name: node2
     networks:
-      - botnet
+      botnet:
+        ipv4_address: 172.28.0.12
+    ports:
+      - "8082:8080"
     volumes:
-      - configs/node2.ini:/app/config.ini
+      - ./configs/node2.ini:/app/config.ini
 
 
   node3:
@@ -27,10 +33,16 @@ services:
       dockerfile: node.Dockerfile
     container_name: node3
     networks:
-      - botnet
+      botnet:
+        ipv4_address: 172.28.0.13
+    ports:
+      - "8083:8080"
     volumes:
-      - configs/node3.ini:/app/config.ini
+      - ./configs/node3.ini:/app/config.ini
 
 networks:
   botnet:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
