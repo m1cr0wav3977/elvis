@@ -40,7 +40,25 @@ Stop the Docker demo with `Ctrl+C`. Remove its containers with:
 docker compose -f docker/docker-compose.yml down
 ```
 
+### API usage
+
+Every node exposes `GET /health` and `GET /info`. Manager and worker nodes also expose `GET /status`, which adds their peer tables to the base node info.
+
+```bash
+# Base info shared by all nodes
+curl http://localhost:8000/health
+curl http://localhost:8000/info
+
+# Manager node: node info + known peer managers + overseen workers
+curl http://localhost:8000/status
+
+# Worker node: node info + overseeing manager's IP
+curl http://localhost:8001/status
+```
+
 ## Deliverable 1 - Design
+
+**A demo of the project can be seen by sending a GET request to https://cs610.catamountcyber.com/ with the health, info, or status route. Only the manager node is exposed**
 
 A peer-to-peer botnet is an intersting engineering challenge as it needs sufficient mechanisms to act in a distributed manner. A herder (botnet operator) needs a way to issue orders to the botnet. The botnet needs to distribute messages in a way that does not loop. It needs to perform tasks and report that it has done them. I believe a good botnet would not need a "bootstrap" node list (often the downfall of actual threat actor botnets) and instead have a distributed means of keeping track of nodes.
 
