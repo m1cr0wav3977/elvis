@@ -18,6 +18,8 @@ build:
   stage: build
   image: python:3.11-slim
   script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends binutils
     - pip install -q -r requirements.txt -r scripts/requirements-build.txt
     - pyinstaller --onefile --name elvis-node --distpath build --workpath .pyinstaller --specpath .pyinstaller src/elvis_botnet/main.py
   artifacts:
