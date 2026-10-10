@@ -10,8 +10,9 @@ services:
         ipv4_address: 172.28.0.11
     ports:
       - "8081:8080"
-    volumes:
-      - ./configs/node1.ini:/app/config.ini
+    command: ["--config", "/app/configs/node1.ini"]
+    environment:
+      ELVIS_ORDER_TOKEN: ${ELVIS_ORDER_TOKEN:-}
 
   node2:
     build:
@@ -23,8 +24,9 @@ services:
         ipv4_address: 172.28.0.12
     ports:
       - "8082:8080"
-    volumes:
-      - ./configs/node2.ini:/app/config.ini
+    command: ["--config", "/app/configs/node2.ini"]
+    environment:
+      ELVIS_ORDER_TOKEN: ${ELVIS_ORDER_TOKEN:-}
 
 
   node3:
@@ -37,8 +39,9 @@ services:
         ipv4_address: 172.28.0.13
     ports:
       - "8083:8080"
-    volumes:
-      - ./configs/node3.ini:/app/config.ini
+    command: ["--config", "/app/configs/node3.ini"]
+    environment:
+      ELVIS_ORDER_TOKEN: ${ELVIS_ORDER_TOKEN:-}
 
 networks:
   botnet:

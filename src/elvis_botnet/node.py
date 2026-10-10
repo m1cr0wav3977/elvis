@@ -1,6 +1,7 @@
 import configparser
 import hmac
 import logging
+import os
 import platform
 import socket
 import uuid
@@ -37,7 +38,9 @@ class Node:
         self.commands_received = 0
         self.commands_completed = 0
         self.order_queue = OrderQueue()
-        self.order_token = config.get("auth", "order_token", fallback="")
+        self.order_token = os.environ.get("ELVIS_ORDER_TOKEN") or config.get(
+            "auth", "order_token", fallback=""
+        )
 
         self.app = Flask(__name__)
         self.register_routes()

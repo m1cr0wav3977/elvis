@@ -3,6 +3,7 @@ FROM debian:trixie-slim
 
 WORKDIR /app
 COPY build/elvis-node ./elvis-node
+COPY configs/ ./configs/
 
 ENTRYPOINT ["/app/elvis-node"]
-CMD ["--config", "/app/config.ini"]
+CMD ["--config", "/app/configs/node1.ini"]

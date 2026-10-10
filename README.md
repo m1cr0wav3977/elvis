@@ -47,9 +47,10 @@ publishes the manager at host port `8081` and its two workers at host ports
 `8082` and `8083`. Every node exposes `GET /health` and `GET /info`. Manager
 and worker nodes also expose `GET /status`, which adds their peer tables to the
 base node info. Nodes accept `POST /orders`; each receiving node must have an
-`[auth] order_token` configured to require a shared bearer token. The endpoint
-only validates and enqueues an order; processing remains an explicit dry run
-through `Node.process_pending_orders()`.
+`[auth] order_token` configured or `ELVIS_ORDER_TOKEN` set in its environment
+to require a shared bearer token. The endpoint only validates and enqueues an
+order; processing remains an explicit dry run through
+`Node.process_pending_orders()`.
 
 ```bash
 # Base info shared by all nodes
@@ -114,9 +115,15 @@ The current implementation does not send this request. A successful enqueue
 returns HTTP `202` with the generated or supplied order ID and `"status":
 "pending"`.
 
-To smoke-test every current route on the Compose manager, first set
-`[auth] order_token` in `configs/node1.ini` to a strong secret and start the
-demo with `./run.sh`. Then export the same value and run:
+To smoke-test every current route on the Compose manager, start the demo with a
+shared token in the environment:
+
+```bash
+export ELVIS_ORDER_TOKEN='the-same-secret-configured-for-node1'
+./run.sh
+```
+
+In another terminal, export the same token and run:
 
 ```bash
 export ELVIS_ORDER_TOKEN='the-same-secret-configured-for-node1'
@@ -128,7 +135,8 @@ The script tests `GET /health`, `GET /info`, `GET /status`, and authenticated
 `POST /orders`. It queues a uniquely identified dry-run example and does not
 trigger order processing. It requires `curl`, `jq`, and Bash. Set
 `ELVIS_MANAGER_URL` to use a different manager URL. Do not commit the secret
-in the config file.
+in the config file or source code. The demo configuration files are copied
+into the container image during build; rebuild the image after editing them.
 
 ## Design
 

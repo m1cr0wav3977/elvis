@@ -42,6 +42,22 @@ def test_receive_order_requires_configured_token():
     assert len(worker.order_queue) == 0
 
 
+def test_receive_order_accepts_environment_token(monkeypatch):
+    monkeypatch.setenv("ELVIS_ORDER_TOKEN", "environment-secret")
+    worker = make_worker()
+    response = worker.app.test_client().post(
+        "/orders",
+        json={
+            "origin_node_id": "manager-1",
+            "kind": "execute",
+            "payload": {"command": "echo", "arguments": ["hello"]},
+        },
+        headers={"Authorization": "Bearer " + "environment" + "-secret"},
+    )
+
+    assert response.status_code == 202
+
+
 def test_receive_order_authenticates_and_enqueues_without_processing():
     config = configparser.ConfigParser()
     config["node"] = {"type": "worker"}

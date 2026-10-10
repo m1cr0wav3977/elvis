@@ -9,7 +9,7 @@ DIST_NAME="elvis-node"
 
 cd "${ROOT_DIR}"
 
-python3 -m venv .venv-build
+python3 -m venv --clear .venv-build
 source .venv-build/bin/activate
 
 pip install -q -r requirements.txt -r scripts/requirements-build.txt
