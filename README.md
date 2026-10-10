@@ -37,85 +37,31 @@ Build and run only the standalone binary:
 Stop the Docker demo with `Ctrl+C`. Remove its containers with:
 
 ```bash
-docker compose -f docker/docker-compose.yml down
+docker compose -f docker-compose-dev.yml down
 ```
 
 ### API usage
 
-Every node exposes `GET /health` and `GET /info`. Manager and worker nodes also expose `GET /status`, which adds their peer tables to the base node info.
+The application listens on port `8080` inside each container. The Docker demo
+publishes the manager at host port `8081` and its two workers at host ports
+`8082` and `8083`. Every node exposes `GET /health` and `GET /info`. Manager
+and worker nodes also expose `GET /status`, which adds their peer tables to the
+base node info.
 
 ```bash
 # Base info shared by all nodes
-curl http://localhost:8000/health
-curl http://localhost:8000/info
+curl http://localhost:8081/health
+curl http://localhost:8081/info
 
 # Manager node: node info + known peer managers + overseen workers
-curl http://localhost:8000/status
+curl http://localhost:8081/status
 
 # Worker node: node info + overseeing manager's IP
-curl http://localhost:8001/status
+curl http://localhost:8082/status
 ```
 
-## Deliverable 1 - Design
+## Design
 
-**A demo of the project can be seen by sending a GET request to https://cs610.catamountcyber.com/ with the health, info, or status route. Only the manager node is exposed**
-
-A peer-to-peer botnet is an intersting engineering challenge as it needs sufficient mechanisms to act in a distributed manner. A herder (botnet operator) needs a way to issue orders to the botnet. The botnet needs to distribute messages in a way that does not loop. It needs to perform tasks and report that it has done them. I believe a good botnet would not need a "bootstrap" node list (often the downfall of actual threat actor botnets) and instead have a distributed means of keeping track of nodes.
-
-I have chosen a manager/worker pattern. Manager and worker's are child classes of the node class. The node class will incorporate functionality common to all nodes. Which for now I have deemed to be the basis of an API, a healthcheck route, a tracker for received and completed commands, and the ability to return basic node information (IP address, hostname, and other system details of the host).
-
-Herders can interact with manager nodes to issue commands to the botnets. Managers will maintain a list of other managers (but not all managers so the botnet can stay hidden for a lack of a better term). Managers will maintain a list of workers. One manager oversees one set of workers but has no clue about another managers workers. Managers handle communication and connectivity but do not perform actions (so as to hide their presence).
-
-Workers receive and act upon instructions.
-
-All nodes will maintain a queue of instructions. An order will have an originating node and unique ID. A discussion between managers determines if a message has been received and acted upon. Managers will need to track which of their worker nodes have acknowledged the order and also completed the action.
-
-### Architecture (Deliverable 1)
-
-```
-                       +----------------+
-                       |    Herder      |
-                       | (human/CLI)    |
-                       +--------+-------+
-                                |
-                                | HTTP (issues orders, reads status)
-                                v
-   +----------------------------------------------------------+
-   |                        Manager Node                      |
-   |   Node (base)                                            |
-   |    - GET /health   - GET /info                           |
-   |   Manager (extends Node)                                 |
-   |    - GET /status  (node info + managers[] + workers[])   |
-   +----------------------------------------------------------+
-              |                                  |
-              | knows of (peer)                  | oversees
-              v                                  v
-   +--------------------+           +----------------------------+
-   |   Manager Node      |          |        Worker Node          |
-   |   (another cell,     |          |   Node (base)                |
-   |   hidden from this   |         |    - GET /health  - GET /info|
-   |   manager's workers) |         |   Worker (extends Node)      |
-   +--------------------+           |    - GET /status (+ manager) |
-                                     +----------------------------+
-                                                 |
-                                        oversees (1..N workers,
-                                        manager has no visibility
-                                        into peer managers' workers)
-
-  Class hierarchy:
-
-      Node
-       |-- register_routes() / health() / info() / node_info()
-       |-- get_ip_address(), parse_peer_list()
-       |
-       +-- Manager        (node_type = "manager")
-       |     managers: []   peer manager IPs (partial view only)
-       |     workers:  []   IPs of workers this manager oversees
-       |
-       +-- Worker         (node_type = "worker")
-             manager_ip: "" IP of the overseeing manager
-```
-
-Each manager only knows a subset of other managers (not the whole botnet) and only the workers it directly oversees, so no single node holds a full membership list.
-
+The Deliverable 1 architecture and design rationale are in the
+[design document](docs/design.md).
 
