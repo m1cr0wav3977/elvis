@@ -44,7 +44,7 @@ class OrderStatus(str, Enum):
 
 @dataclass(slots=True)
 class Order:
-    """A typed, dry-run order received by ``POST /orders``.
+    """A typed, dry-run order received by ``POST /orders`` and listed by ``GET /orders``.
 
     Request JSON uses a common envelope and one of two kind-specific payloads:
 

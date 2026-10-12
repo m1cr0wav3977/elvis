@@ -2,6 +2,7 @@ import configparser
 
 import pytest
 
+from elvis_botnet.manager import Manager
 from elvis_botnet.order import Order, OrderStatus, OrderType
 from elvis_botnet.worker import Worker
 
@@ -29,7 +30,8 @@ def make_order(order_id: str | None = None) -> Order:
 
 def test_receive_order_requires_configured_token():
     worker = make_worker()
-    response = worker.app.test_client().post(
+    client = worker.app.test_client()
+    response = client.post(
         "/orders",
         json={
             "origin_node_id": "manager-1",
@@ -40,6 +42,89 @@ def test_receive_order_requires_configured_token():
 
     assert response.status_code == 503
     assert len(worker.order_queue) == 0
+    listing = client.get("/orders")
+    assert listing.status_code == 503
+    assert listing.get_json() == {"error": "order listing unavailable"}
+
+
+@pytest.mark.parametrize(
+    ("node_type", "node_class"),
+    [("manager", Manager), ("worker", Worker)],
+)
+def test_get_orders_returns_pending_and_processing_orders_only(node_type, node_class):
+    config = configparser.ConfigParser()
+    config["node"] = {"type": node_type}
+    config["auth"] = {"order_token": "test-secret"}
+    node = node_class(config)
+    client = node.app.test_client()
+    headers = {"Authorization": "Bearer test-secret"}
+
+    unauthorized = client.get("/orders")
+    assert unauthorized.status_code == 401
+
+    first_response = client.post(
+        "/orders",
+        json={
+            "origin_node_id": "manager-1",
+            "order_id": "pending-order",
+            "kind": "execute",
+            "payload": {"command": "echo"},
+        },
+        headers=headers,
+    )
+    second_response = client.post(
+        "/orders",
+        json={
+            "origin_node_id": "manager-1",
+            "order_id": "processing-order",
+            "kind": "http_request",
+            "payload": {"method": "GET", "url": "https://example.invalid"},
+        },
+        headers=headers,
+    )
+    assert first_response.status_code == second_response.status_code == 202
+
+    processing_order = node.order_queue.get("processing-order")
+    assert processing_order is not None
+    processing_order.mark_processing()
+
+    listing = client.get("/orders", headers=headers)
+    assert listing.status_code == 200
+    orders = listing.get_json()["orders"]
+    assert [order["order_id"] for order in orders] == [
+        "pending-order",
+        "processing-order",
+    ]
+    assert [order["status"] for order in orders] == [
+        "pending",
+        "processing",
+    ]
+    assert orders[0]["kind"] == "execute"
+    assert orders[0]["payload"] == {"command": "echo"}
+    assert orders[0]["origin_node_id"] == "manager-1"
+    assert orders[0]["created_at"]
+
+    processing_order.mark_completed()
+    completed_listing = client.get("/orders", headers=headers)
+    assert completed_listing.status_code == 200
+    assert [order["order_id"] for order in completed_listing.get_json()["orders"]] == [
+        "pending-order",
+    ]
+
+
+def test_get_orders_returns_empty_list_when_queue_has_no_active_orders():
+    config = configparser.ConfigParser()
+    config["node"] = {"type": "worker"}
+    config["auth"] = {"order_token": "test-secret"}
+    worker = Worker(config)
+
+    response = worker.app.test_client().get(
+        "/orders",
+        headers={"Authorization": "Bearer test-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"orders": []}
 
 
 def test_receive_order_accepts_environment_token(monkeypatch):

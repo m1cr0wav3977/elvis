@@ -1,7 +1,7 @@
 
 from collections import deque
 
-from elvis_botnet.order import Order
+from elvis_botnet.order import Order, OrderStatus
 
 
 class OrderQueue:
@@ -24,6 +24,13 @@ class OrderQueue:
 
     def get(self, order_id: str) -> Order | None:
         return self._orders_by_id.get(order_id)
+
+    def active_orders(self) -> list[Order]:
+        return [
+            order
+            for order in self._orders_by_id.values()
+            if order.status in {OrderStatus.PENDING, OrderStatus.PROCESSING}
+        ]
 
     def __len__(self) -> int:
         return len(self._pending)

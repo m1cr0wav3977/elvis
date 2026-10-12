@@ -4,8 +4,9 @@
 
 Project 2 adds the first step in node-to-node communication: a node can accept
 a structured order, authenticate the sender with a shared bearer token, and
-place the order in its local queue. Nodes can explicitly drain that queue in
-dry-run mode. 
+place the order in its local queue. An authenticated caller can also inspect
+the node's active orders. Nodes can explicitly drain that queue in dry-run
+mode.
 
 Nodes receive and process orders. There are two types of orders, `execute` and 
 `http_request`.
@@ -71,6 +72,14 @@ receiver-managed and are not accepted as request fields.
 
 ## Receiving orders and authentication
 
+The shared order API is exposed by every manager and worker through the common
+`Node`. `POST /orders` accepts and validates an order. Authenticated
+`GET /orders` lists only the responding node's pending and processing orders;
+completed orders are not returned. Each item includes `order_id`,
+`origin_node_id`, `kind`, `payload`, `created_at`, and `status`. The response
+is `{"orders":[]}` when there are no active orders. The GET endpoint requires
+the same configured bearer token as order submission.
+
 The base `Node` registers `POST /orders`, so both manager and worker nodes
 currently expose the same receiver. Requests use the JSON envelope described
 above and an `Authorization: Bearer <token>` header. The receiving node reads
@@ -106,11 +115,136 @@ pending -> processing -> completed
 ```
 
 `Node.process_pending_orders()` drains the queue when explicitly called. It
-logs the order ID, kind, and origin, updates the existing received/completed
-counters, and marks the order complete. The receive route does not invoke this
-method. There is no background scheduler or central control loop yet.
+logs the order ID, kind, and origin to stdout, updates the existing
+received/completed counters, and marks the order complete. The receive route
+does not invoke this method. There is no background scheduler or central
+control loop yet. Processing is synchronous and dry-run only; the application
+does not execute a command or send an HTTP request.
 
 ## How to test manually
+
+There are two supported three-node test setups below. Run the curl commands
+on the Linux machine that hosts the nodes and use `localhost` in both setups.
+For Docker Compose on a remote server, SSH to that server and run the commands
+there.
+
+From the repository root on the Linux server, build the binary and generate a
+shared token:
+
+```bash
+./scripts/build.sh
+TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+printf 'Generated lab token: %s\n' "$TOKEN"
+```
+
+Copy the three example configs into a private local directory:
+
+```bash
+mkdir -m 700 -p "$HOME/project2-lab"
+cp configs/node1.ini "$HOME/project2-lab/manager.ini"
+cp configs/node2.ini "$HOME/project2-lab/worker1.ini"
+cp configs/node3.ini "$HOME/project2-lab/worker2.ini"
+chmod 600 "$HOME/project2-lab/"*.ini
+```
+
+Edit each copied config. In its existing `[node]` section set
+`host = 127.0.0.1` and the port shown below. Add an `[auth]` section with the
+same token in all three files:
+
+| Config | Type | Port |
+|---|---|---:|
+| `manager.ini` | manager | 8081 |
+| `worker1.ini` | worker | 8082 |
+| `worker2.ini` | worker | 8083 |
+
+```ini
+[auth]
+order_token = PASTE_THE_GENERATED_VALUE_HERE
+```
+
+Paste the value printed as `Generated lab token` without quotes. Do not edit
+the tracked configs or commit these local copies. Start the three binaries in
+the background:
+
+```bash
+nohup ./build/elvis-node --config "$HOME/project2-lab/manager.ini" \
+  > "$HOME/project2-lab/manager.log" 2>&1 &
+echo $! > "$HOME/project2-lab/manager.pid"
+nohup ./build/elvis-node --config "$HOME/project2-lab/worker1.ini" \
+  > "$HOME/project2-lab/worker1.log" 2>&1 &
+echo $! > "$HOME/project2-lab/worker1.pid"
+nohup ./build/elvis-node --config "$HOME/project2-lab/worker2.ini" \
+  > "$HOME/project2-lab/worker2.log" 2>&1 &
+echo $! > "$HOME/project2-lab/worker2.pid"
+```
+
+In the shell used for the curl commands, set `TOKEN` to the same generated
+value:
+
+```bash
+TOKEN='PASTE_THE_GENERATED_VALUE_HERE'
+```
+
+### Exercise the API on either setup
+
+These commands are identical in both setups. Check health and read each node's
+active order queue:
+
+```bash
+for PORT in 8081 8082 8083; do
+  curl -i "http://localhost:$PORT/health"
+  curl -i -H "Authorization: Bearer $TOKEN" \
+    "http://localhost:$PORT/orders"
+done
+```
+
+Health returns HTTP `200`. Authenticated `GET /orders` returns HTTP `200` and
+`{"orders":[]}` on a fresh node. The GET requires the bearer token: omitting
+it or using a wrong one returns HTTP `401`. If a node has no configured token,
+it returns HTTP `503`.
+
+Submit an `execute` order to the manager and an `http_request` order to a
+worker:
+
+```bash
+curl -i -X POST http://localhost:8081/orders \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"origin_node_id":"manual-tester","order_id":"manual-manager-001","kind":"execute","payload":{"command":"echo","arguments":["hello"]}}'
+
+curl -i -X POST http://localhost:8082/orders \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"origin_node_id":"manual-tester","order_id":"manual-worker-001","kind":"http_request","payload":{"method":"GET","url":"https://example.invalid/health","headers":{"Accept":"application/json"}}}'
+```
+
+Each accepted request returns HTTP `202`, its order ID, and
+`"status":"pending"`. The payloads are descriptions only: no command is run
+and no request is sent to `example.invalid`. Query each node again:
+
+```bash
+for PORT in 8081 8082 8083; do
+  printf '\nOrders on localhost:%s\n' "$PORT"
+  curl -i -H "Authorization: Bearer $TOKEN" \
+    "http://localhost:$PORT/orders"
+done
+```
+
+The manager's response contains `manual-manager-001`, worker 1's response
+contains `manual-worker-001`, and worker 2's response has an empty `orders`
+array. Each order includes its ID, origin, kind, payload, creation time, and
+status. The endpoint returns only the responding node's queue, not a
+network-wide view. Re-sending an ID to the same node returns HTTP `400`; IDs
+are independent between nodes. An unsupported HTTP method such as `TRACE`
+returns HTTP `400`, and an incorrect token returns HTTP `401`.
+
+Pending orders remain listed until `Node.process_pending_orders()` is
+explicitly called. It logs each dry-run order to stdout, updates counters,
+marks the order completed, and completed orders no longer appear in
+`GET /orders`. There is no scheduler or HTTP processing trigger in this
+increment, so neither deployment processes orders automatically.
+
+## Optional single-worker source check
 
 These steps exercise the live HTTP receiver with `curl` and the local queue
 processor. The processor has no HTTP endpoint, so the final check uses a small
@@ -232,7 +366,8 @@ precedence over the `.ini` value.
 
 ### Check enqueueing, dry-run processing, and status counters
 
-There is deliberately no HTTP route to inspect or drain a node's order queue.
+`GET /orders` inspects active orders, but there is no HTTP route to drain a
+node's order queue.
 Run the following from the repository root with the virtual environment
 activated and `PYTHONPATH` set as above. It creates a separate in-memory worker
 using the same local `.ini` file, sends both supported order kinds through its

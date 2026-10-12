@@ -8,9 +8,9 @@ The project will be submitted in 4 installments:
 
 1. Project design and base classes. Establish what makes a "node" and differentiate between manager and worker nodes. Make and deploy a POC that shows the nodes run and respond to HTTP requests with basic information.
 
-2. Node communication. Have nodes be able to receive and action messages. Establish precedence between manager and worker nodes. Manager nodes issue orders and allow for human interface. Need authentication mechanism.
+2. Node communication. Have nodes be able to receive and action orders. Need authentication mechanism.
 
-3. Peer list structure and methods - how do you prevent each node from having a list of all other nodes? How do you keep track of how many nodes you have?
+3. Peer list structure and methods - how do you prevent each node from having a list of all other nodes? How do you keep track of how many nodes you have? Establish precedence between manager and worker nodes.
 
 4. How can traffic between nodes be secured and/or obscured?
 
@@ -74,12 +74,19 @@ curl http://localhost:8081/status
 # Worker node: node info + overseeing manager's IP
 curl http://localhost:8082/status
 
+# Active local orders (requires the configured bearer token)
+curl -H "Authorization: Bearer $ELVIS_ORDER_TOKEN" http://localhost:8082/orders
+
 # Submit a sample order once [auth] order_token is configured on the worker
 curl -X POST http://localhost:8082/orders \
   -H "Authorization: Bearer YOUR_SHARED_ORDER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"origin_node_id":"manager-1","kind":"execute","payload":{"command":"echo","arguments":["hello"]}}'
 ```
+
+`GET /orders` is available on managers and workers. It requires the same
+bearer token as `POST /orders` and returns that node's pending and processing
+orders; completed orders are omitted.
 
 #### `POST /orders` JSON structure
 

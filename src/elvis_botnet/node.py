@@ -86,6 +86,11 @@ class Node:
             view_func=self.receive_order,
             methods=["POST"]
         )
+        self.app.add_url_rule(
+            "/orders",
+            view_func=self.list_orders,
+            methods=["GET"]
+        )
 
     def health(self):
         return jsonify({"status": "ok"})
@@ -93,18 +98,29 @@ class Node:
     def info(self):
         return jsonify(self.node_info())
 
-    def receive_order(self):
-        if not self.order_token:
-            return jsonify({"error": "order submission unavailable"}), 503
+    def list_orders(self):
+        auth_error = self._order_authorization_error("order listing unavailable")
+        if auth_error is not None:
+            return auth_error
 
-        authorization = request.headers.get("Authorization", "")
-        scheme, separator, token = authorization.partition(" ")
-        if (
-            not separator
-            or scheme.lower() != "bearer"
-            or not hmac.compare_digest(token, self.order_token)
-        ):
-            return jsonify({"error": "invalid order"}), 401
+        return jsonify({
+            "orders": [
+                {
+                    "order_id": order.order_id,
+                    "origin_node_id": order.origin_node_id,
+                    "kind": order.kind.value,
+                    "payload": order.payload,
+                    "created_at": order.created_at.isoformat(),
+                    "status": order.status.value,
+                }
+                for order in self.order_queue.active_orders()
+            ]
+        })
+
+    def receive_order(self):
+        auth_error = self._order_authorization_error("order submission unavailable")
+        if auth_error is not None:
+            return auth_error
 
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
@@ -155,6 +171,20 @@ class Node:
             return jsonify({"error": "invalid order"}), 400
 
         return jsonify({"order_id": order.order_id, "status": order.status.value}), 202
+
+    def _order_authorization_error(self, unavailable_message: str):
+        if not self.order_token:
+            return jsonify({"error": unavailable_message}), 503
+
+        authorization = request.headers.get("Authorization", "")
+        scheme, separator, token = authorization.partition(" ")
+        if (
+            not separator
+            or scheme.lower() != "bearer"
+            or not hmac.compare_digest(token, self.order_token)
+        ):
+            return jsonify({"error": "invalid order"}), 401
+        return None
 
     @staticmethod
     def _valid_order_payload(kind: OrderType, payload: dict[str, JSONValue]) -> bool:
