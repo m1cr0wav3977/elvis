@@ -80,8 +80,8 @@ completed orders are not returned. Each item includes `order_id`,
 is `{"orders":[]}` when there are no active orders. The GET endpoint requires
 the same configured bearer token as order submission.
 
-The base `Node` registers `POST /orders`, so both manager and worker nodes
-currently expose the same receiver. Requests use the JSON envelope described
+The base `Node` registers `GET /orders` and `POST /orders`, so both manager and
+worker nodes expose the same order API. Requests use the JSON envelope described
 above and an `Authorization: Bearer <token>` header. The receiving node reads
 the expected shared token from its configuration:
 
@@ -90,8 +90,9 @@ the expected shared token from its configuration:
 order_token = <shared-secret>
 ```
 
-An empty or missing configured token disables order submission. An invalid
-token is rejected, and the token comparison uses Python's standard-library
+An empty or missing configured token disables order submission and listing;
+the respective routes return HTTP `503`. An invalid token is rejected with
+HTTP `401`, and the token comparison uses Python's standard-library
 `hmac.compare_digest`. After authentication, the route validates the envelope
 and kind-specific payload, creates an `Order`, and enqueues it. A successful
 request returns HTTP `202` with the order ID and `pending` status. Reusing an
@@ -425,5 +426,6 @@ PY
 
 The worker started for the `curl` checks is a different process, so its queue
 is not the queue used by this in-memory lifecycle check. This is expected:
-Project 2 currently has no persistent queue, order-status endpoint, or remote
+queues are in-memory and local to each process. `GET /orders` lists active
+orders only; there is no per-order lookup for completed orders or remote
 processing trigger.

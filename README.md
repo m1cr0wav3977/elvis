@@ -133,8 +133,8 @@ The current implementation does not send this request. A successful enqueue
 returns HTTP `202` with the generated or supplied order ID and `"status":
 "pending"`.
 
-To smoke-test every current route on the Compose manager, start the demo with a
-shared token in the environment:
+To smoke-test the API on all three Compose nodes, start the demo with a shared
+token in the environment:
 
 ```bash
 export ELVIS_ORDER_TOKEN='the-same-secret-configured-for-node1'
@@ -145,13 +145,15 @@ In another terminal, export the same token and run:
 
 ```bash
 export ELVIS_ORDER_TOKEN='the-same-secret-configured-for-node1'
-bash scripts/smoke_test_compose_api.sh
+bash scripts/test.sh
 unset ELVIS_ORDER_TOKEN
 ```
 
-The script tests `GET /health`, `GET /info`, `GET /status`, and authenticated
-`POST /orders`. It queues a uniquely identified dry-run example and does not
-trigger order processing. It requires `curl`, `jq`, and Bash. Set
-`ELVIS_MANAGER_URL` to use a different manager URL. Do not commit the secret
-in the config file or source code. The demo configuration files are copied
-into the container image during build; rebuild the image after editing them.
+The script displays each request and its response body, HTTP status, and curl
+exit status. It submits a uniquely identified order to each node and then
+requests each node's active queue; it does not assert response contents or
+trigger order processing. It requires `curl` and Bash. Set
+`ELVIS_MANAGER_URL`, `ELVIS_WORKER1_URL`, or `ELVIS_WORKER2_URL` to override
+the corresponding localhost URL. Do not commit the secret in a config file or
+source code. The demo configuration files are copied into the container image
+during build; rebuild the image after editing them.

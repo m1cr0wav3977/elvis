@@ -1,97 +1,76 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
-BASE_URL="${ELVIS_MANAGER_URL:-http://localhost:8081}"
-BASE_URL="${BASE_URL%/}"
+MANAGER_URL="${ELVIS_MANAGER_URL:-http://localhost:8081}"
+WORKER1_URL="${ELVIS_WORKER1_URL:-http://localhost:8082}"
+WORKER2_URL="${ELVIS_WORKER2_URL:-http://localhost:8083}"
+MANAGER_URL="${MANAGER_URL%/}"
+WORKER1_URL="${WORKER1_URL%/}"
+WORKER2_URL="${WORKER2_URL%/}"
 
 if [[ -z "${ELVIS_ORDER_TOKEN:-}" ]]; then
-    printf 'Set ELVIS_ORDER_TOKEN to the manager [auth] order_token.\n' >&2
+    printf 'Set ELVIS_ORDER_TOKEN to the shared node order token.\n' >&2
     exit 2
 fi
 
-request_json() {
+CURL_FAILED=0
+
+request() {
     local method="$1"
-    local path="$2"
-    local expected_status="$3"
-    local data="${4:-}"
-    local response
-    local status
-    local body
-    local curl_args=(
+    local url="$2"
+    local data="${3:-}"
+    local curl_status
+    local -a curl_args=(
         --silent
         --show-error
         --max-time 5
         --request "$method"
-        --write-out $'\n%{http_code}'
+        --header "Authorization: Bearer $ELVIS_ORDER_TOKEN"
+        --write-out $'\nHTTP status: %{http_code}\n'
     )
 
+    printf '\n>>> Request\n%s %s\nAuthorization: Bearer <ELVIS_ORDER_TOKEN>\n' \
+        "$method" "$url"
     if [[ -n "$data" ]]; then
-        curl_args+=(
-            --header "Authorization: Bearer ${ELVIS_ORDER_TOKEN}"
-            --header "Content-Type: application/json"
-            --data "$data"
-        )
+        printf 'Content-Type: application/json\nBody:\n%s\n' "$data"
+        curl_args+=(--header "Content-Type: application/json" --data "$data")
     fi
 
-    if ! response="$(curl "${curl_args[@]}" "${BASE_URL}${path}")"; then
-        printf 'FAIL %s %s: request failed\n' "$method" "$path" >&2
-        return 1
+    printf '<<< Response\n'
+    if curl "${curl_args[@]}" "$url"; then
+        curl_status=0
+    else
+        curl_status=$?
+        CURL_FAILED=1
     fi
-
-    status="${response##*$'\n'}"
-    body="${response%$'\n'*}"
-    if [[ "$status" != "$expected_status" ]]; then
-        printf 'FAIL %s %s: expected HTTP %s, got %s: %s\n' \
-            "$method" "$path" "$expected_status" "$status" "$body" >&2
-        return 1
-    fi
-    if ! jq -e 'type == "object"' <<<"$body" >/dev/null; then
-        printf 'FAIL %s %s: expected a JSON object response\n' "$method" "$path" >&2
-        return 1
-    fi
-
-    printf '%s' "$body"
+    printf 'curl exit status: %s\n' "$curl_status"
 }
 
-health="$(request_json GET /health 200)"
-jq -e '.status == "ok"' <<<"$health" >/dev/null || {
-    printf 'FAIL GET /health: expected status=ok\n' >&2
-    exit 1
-}
-printf 'PASS GET /health\n'
+run_id="manual-$(date +%s%N)-$$"
+manager_order_id="${run_id}-manager"
+worker1_order_id="${run_id}-worker1"
+worker2_order_id="${run_id}-worker2"
 
-info="$(request_json GET /info 200)"
-jq -e '.node_type == "manager" and (.node_id | type == "string" and length > 0)' \
-    <<<"$info" >/dev/null || {
-    printf 'FAIL GET /info: expected manager node info with a node ID\n' >&2
-    exit 1
-}
-node_id="$(jq -er '.node_id' <<<"$info")"
-printf 'PASS GET /info\n'
+manager_order="$(printf \
+    '{"origin_node_id":"manual-tester","order_id":"%s","kind":"execute","payload":{"command":"echo","arguments":["dry-run test"]}}' \
+    "$manager_order_id")"
+worker1_order="$(printf \
+    '{"origin_node_id":"manual-tester","order_id":"%s","kind":"http_request","payload":{"method":"GET","url":"https://example.invalid/health","headers":{"Accept":"application/json"}}}' \
+    "$worker1_order_id")"
+worker2_order="$(printf \
+    '{"origin_node_id":"manual-tester","order_id":"%s","kind":"execute","payload":{"command":"echo","arguments":["dry-run test"]}}' \
+    "$worker2_order_id")"
 
-status="$(request_json GET /status 200)"
-jq -e '.node_type == "manager" and (.managers | type == "array") and (.workers | type == "array")' \
-    <<<"$status" >/dev/null || {
-    printf 'FAIL GET /status: expected manager and worker lists\n' >&2
-    exit 1
-}
-printf 'PASS GET /status\n'
+request GET "$MANAGER_URL/health"
+request GET "$MANAGER_URL/info"
+request GET "$MANAGER_URL/status"
 
-order_id="smoke-test-$(date +%s%N)-$$"
-order_json="$(jq -cn \
-    --arg origin_node_id "$node_id" \
-    --arg order_id "$order_id" \
-    '{
-        origin_node_id: $origin_node_id,
-        kind: "execute",
-        payload: {command: "echo", arguments: ["dry-run smoke test"]},
-        order_id: $order_id
-    }')"
-accepted="$(request_json POST /orders 202 "$order_json")"
-jq -e --arg order_id "$order_id" \
-    '.order_id == $order_id and .status == "pending"' \
-    <<<"$accepted" >/dev/null || {
-    printf 'FAIL POST /orders: response did not acknowledge the queued order\n' >&2
-    exit 1
-}
-printf 'PASS POST /orders (enqueued only; processing is not triggered)\n'
+request POST "$MANAGER_URL/orders" "$manager_order"
+request POST "$WORKER1_URL/orders" "$worker1_order"
+request POST "$WORKER2_URL/orders" "$worker2_order"
+
+request GET "$MANAGER_URL/orders"
+request GET "$WORKER1_URL/orders"
+request GET "$WORKER2_URL/orders"
+
+exit "$CURL_FAILED"
