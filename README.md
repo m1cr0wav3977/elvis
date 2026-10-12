@@ -27,17 +27,27 @@ Build the node and start the three-node Docker demo:
 ./run.sh
 ```
 
+The demo uses one shared order token for all nodes. If `ELVIS_ORDER_TOKEN` is
+unset or empty, `run.sh` generates a random token and prints it so you can use
+it in local API tests. Treat this generated token as a local-testing
+convenience, not a production secret. To use your own token for repeatable
+testing, set the environment variable before launching:
+
+```bash
+export ELVIS_ORDER_TOKEN='your-lab-shared-secret'
+./run.sh
+```
+
+For a standalone node, the same secret can be set as `order_token` in that
+node's `[auth]` config section instead. When both are set, a non-empty
+`ELVIS_ORDER_TOKEN` takes precedence. Keep real secrets out of committed config
+files and source control.
+
 Build and run only the standalone binary:
 
 ```bash
 ./scripts/build.sh
 ./build/elvis-node
-```
-
-Stop the Docker demo with `Ctrl+C`. Remove its containers with:
-
-```bash
-docker compose -f docker-compose-dev.yml down
 ```
 
 ### API usage
@@ -48,8 +58,9 @@ publishes the manager at host port `8081` and its two workers at host ports
 and worker nodes also expose `GET /status`, which adds their peer tables to the
 base node info. Nodes accept `POST /orders`; each receiving node must have an
 `[auth] order_token` configured or `ELVIS_ORDER_TOKEN` set in its environment
-to require a shared bearer token. The endpoint only validates and enqueues an
-order; processing remains an explicit dry run through
+to require a shared bearer token. The sender must include the same value in
+the `Authorization` header using the `Bearer` scheme. The endpoint only
+validates and enqueues an order; processing remains an explicit dry run through
 `Node.process_pending_orders()`.
 
 ```bash
@@ -137,19 +148,3 @@ trigger order processing. It requires `curl`, `jq`, and Bash. Set
 `ELVIS_MANAGER_URL` to use a different manager URL. Do not commit the secret
 in the config file or source code. The demo configuration files are copied
 into the container image during build; rebuild the image after editing them.
-
-## Design
-
-The Deliverable 1 architecture and design rationale are in the
-[design document](design.md).
-
-### Deliverable 2 groundwork
-
-Nodes have a per-node FIFO order queue and can drain it with
-`Node.process_pending_orders()`. Orders track their ID, originating node ID,
-kind, payload, creation time, and local status. Processing is dry-run only:
-the node logs what it would do and does not execute a system process or send
-an HTTP request. `POST /orders` validates and queues an order, but does not
-process it automatically; there is no background processing loop yet. The
-route rejects submissions when `[auth] order_token` is missing or empty. Keep
-the token secret and do not commit it to the repository.

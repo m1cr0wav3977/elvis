@@ -5,9 +5,10 @@
 Project 2 adds the first step in node-to-node communication: a node can accept
 a structured order, authenticate the sender with a shared bearer token, and
 place the order in its local queue. Nodes can explicitly drain that queue in
-dry-run mode. This document describes the Project 2 changes only; the
-Project 1 node hierarchy and status routes are documented separately in
-[project1.md](./project1.md).
+dry-run mode. 
+
+Nodes receive and process orders. There are two types of orders, `execute` and 
+`http_request`.
 
 Order processing is intentionally non-operational at this stage. An
 `execute` order is not run as a system command, and an `http_request` order is
@@ -109,17 +110,185 @@ logs the order ID, kind, and origin, updates the existing received/completed
 counters, and marks the order complete. The receive route does not invoke this
 method. There is no background scheduler or central control loop yet.
 
-## Not implemented in this increment
+## How to test manually
 
-- A manager-facing human/CLI interface for authoring and issuing orders.
-- Manager-to-worker forwarding, peer-manager coordination, or completion
-  acknowledgements reported back to the originating manager.
-- Role-based authorization or a per-peer authentication scheme.
-- Actual system-command execution or outbound HTTP requests.
-- Background processing or retry behavior.
-- TLS or other transport encryption.
+These steps exercise the live HTTP receiver with `curl` and the local queue
+processor. The processor has no HTTP endpoint, so the final check uses a small
+Python snippet to inspect and drain an in-memory node. Orders are always
+descriptive in this increment: neither commands nor HTTP requests are carried
+out.
 
-These items remain separate design and implementation work. In particular,
-the shared bearer token does not protect traffic from interception, and the
-dry-run processor must remain non-operational until execution and network
-behavior are separately designed and authorized.
+### Start a worker with an `.ini` token
+
+From the repository root, install the Python requirements if they are not
+already installed:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+```
+
+Generate a strong random token using Python's standard library:
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Copy the printed value. Make a local copy of the worker configuration, then
+add an `[auth]` section containing that value:
+
+```bash
+cp configs/node2.ini /tmp/project2-worker.ini
+```
+
+The end of `/tmp/project2-worker.ini` should contain:
+
+```ini
+[auth]
+order_token = PASTE_THE_GENERATED_VALUE_HERE
+```
+
+Replace the example value with the generated token (without quotes). Do not
+put a real secret in a tracked config file or commit this local config. Start
+the worker with the source package and ensure the environment override is
+unset so the `.ini` value is used:
+
+```bash
+unset ELVIS_ORDER_TOKEN
+export PYTHONPATH="$PWD/src"
+python3 -m elvis_botnet.main --config /tmp/project2-worker.ini
+```
+
+Leave this terminal running. In another terminal, set `TOKEN` to the exact
+value entered in the `.ini` file and use port `8080`:
+
+```bash
+TOKEN='PASTE_THE_GENERATED_VALUE_HERE'
+BASE_URL='http://localhost:8080'
+```
+
+The sample worker config uses the default port, `8080`. If that port is already
+in use, add `port = 8084` under its `[node]` section and change `BASE_URL`
+accordingly before starting the worker.
+
+### Check the API and authentication
+
+The health endpoint should respond with HTTP `200`:
+
+```bash
+curl -i "$BASE_URL/health"
+```
+
+With a configured token, a request with no bearer token or a wrong token should
+respond with HTTP `401` and `{"error":"invalid order"}`. For example:
+
+```bash
+curl -i -X POST "$BASE_URL/orders" \
+  -H 'Content-Type: application/json' \
+  -d '{"origin_node_id":"manager-1","kind":"execute","payload":{"command":"echo"}}'
+
+curl -i -X POST "$BASE_URL/orders" \
+  -H 'Authorization: Bearer definitely-not-the-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"origin_node_id":"manager-1","kind":"execute","payload":{"command":"echo"}}'
+```
+
+Both valid order kinds should return HTTP `202` with an order ID and
+`"status":"pending"`. The first example lets the receiving node generate the
+ID; the second supplies one explicitly:
+
+```bash
+curl -i -X POST "$BASE_URL/orders" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"origin_node_id":"manager-1","kind":"execute","payload":{"command":"echo","arguments":["hello"]}}'
+
+curl -i -X POST "$BASE_URL/orders" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"origin_node_id":"manager-1","order_id":"manual-http-001","kind":"http_request","payload":{"method":"GET","url":"https://example.invalid/health","headers":{"Accept":"application/json"}}}'
+```
+
+The HTTP order above is only queued; the node does not contact
+`example.invalid`. Re-send the second request unchanged to check duplicate-ID
+rejection: it should return HTTP `400` with `{"error":"invalid order"}`.
+
+This malformed order should also return HTTP `400` and should not be enqueued:
+
+```bash
+curl -i -X POST "$BASE_URL/orders" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"origin_node_id":"manager-1","kind":"http_request","payload":{"method":"TRACE","url":"https://example.invalid/health"}}'
+```
+
+To check the unconfigured-token case, stop the worker, remove or blank
+`order_token` in the local config, ensure `ELVIS_ORDER_TOKEN` is unset, and
+restart it. A `POST /orders` request then returns HTTP `503` with
+`{"error":"order submission unavailable"}`. Restore the token and restart the
+worker before continuing. The environment variable, when non-empty, takes
+precedence over the `.ini` value.
+
+### Check enqueueing, dry-run processing, and status counters
+
+There is deliberately no HTTP route to inspect or drain a node's order queue.
+Run the following from the repository root with the virtual environment
+activated and `PYTHONPATH` set as above. It creates a separate in-memory worker
+using the same local `.ini` file, sends both supported order kinds through its
+Flask test client, and checks their pending-to-completed lifecycle:
+
+```bash
+python3 - <<'PY'
+import configparser
+
+from elvis_botnet.order import OrderStatus
+from elvis_botnet.worker import Worker
+
+config = configparser.ConfigParser()
+if not config.read("/tmp/project2-worker.ini"):
+    raise SystemExit("Could not read /tmp/project2-worker.ini")
+
+node = Worker(config)
+client = node.app.test_client()
+headers = {"Authorization": f"Bearer {node.order_token}"}
+orders = [
+    {
+        "origin_node_id": "manager-1",
+        "kind": "execute",
+        "payload": {"command": "echo", "arguments": ["dry run"]},
+    },
+    {
+        "origin_node_id": "manager-1",
+        "kind": "http_request",
+        "payload": {
+            "method": "GET",
+            "url": "https://example.invalid/health",
+        },
+    },
+]
+
+accepted = []
+for body in orders:
+    response = client.post("/orders", json=body, headers=headers)
+    assert response.status_code == 202, response.get_data(as_text=True)
+    order_id = response.get_json()["order_id"]
+    order = node.order_queue.get(order_id)
+    assert order is not None and order.status is OrderStatus.PENDING
+    accepted.append(order)
+
+assert node.commands_received == 0
+assert node.commands_completed == 0
+assert node.process_pending_orders() == 2
+assert all(order.status is OrderStatus.COMPLETED for order in accepted)
+assert node.commands_received == 2
+assert node.commands_completed == 2
+assert node.process_pending_orders() == 0
+print("PASS: two orders enqueued, dry-run completed, counters updated")
+PY
+```
+
+The worker started for the `curl` checks is a different process, so its queue
+is not the queue used by this in-memory lifecycle check. This is expected:
+Project 2 currently has no persistent queue, order-status endpoint, or remote
+processing trigger.
