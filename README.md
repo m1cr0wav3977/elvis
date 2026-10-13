@@ -149,6 +149,17 @@ bash scripts/test.sh
 unset ELVIS_ORDER_TOKEN
 ```
 
+To smoke-test a standalone manager listening on `localhost:8080`, set the
+same configured token and run:
+
+```bash
+export ELVIS_ORDER_TOKEN='the-manager-order-token'
+bash scripts/test_local_manager.sh
+unset ELVIS_ORDER_TOKEN
+```
+
+Set `ELVIS_MANAGER_URL` to target a different manager URL.
+
 The script displays each request and its response body, HTTP status, and curl
 exit status. It submits a uniquely identified order to each node and then
 requests each node's active queue; it does not assert response contents or

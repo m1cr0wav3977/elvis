@@ -1,0 +1,10 @@
+[node]
+type = manager
+ip = 172.28.0.11
+
+[peers]
+managers =
+workers = 172.28.0.12,172.28.0.13
+
+[auth]
+order_token = your_order_token_here
