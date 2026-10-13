@@ -5,8 +5,8 @@
 Project 2 adds the first step in node-to-node communication: a node can accept
 a structured order, authenticate the sender with a shared bearer token, and
 place the order in its local queue. An authenticated caller can also inspect
-the node's active orders. Nodes can explicitly drain that queue in dry-run
-mode.
+the node's active orders. Each node drains its own queue in dry-run mode every
+60 seconds.
 
 Nodes receive and process orders. There are two types of orders, `execute` and 
 `http_request`.
@@ -115,12 +115,14 @@ status transitions are:
 pending -> processing -> completed
 ```
 
-`Node.process_pending_orders()` drains the queue when explicitly called. It
-logs the order ID, kind, and origin to stdout, updates the existing
-received/completed counters, and marks the order complete. The receive route
-does not invoke this method. There is no background scheduler or central
-control loop yet. Processing is synchronous and dry-run only; the application
-does not execute a command or send an HTTP request.
+`main()` starts one background thread per node process. The thread waits 60
+seconds after startup, then calls `Node.process_pending_orders()` once per
+minute. That method atomically claims the currently pending orders, logs each
+order ID, kind, and origin to stdout, updates the existing received/completed
+counters, and marks each order complete. Orders received during a processing
+cycle are handled in the next cycle. The timer is local to each node; there is
+no central scheduler. Processing is synchronous and dry-run only; the
+application does not execute a command or send an HTTP request.
 
 ## How to test manually
 
@@ -239,11 +241,12 @@ network-wide view. Re-sending an ID to the same node returns HTTP `400`; IDs
 are independent between nodes. An unsupported HTTP method such as `TRACE`
 returns HTTP `400`, and an incorrect token returns HTTP `401`.
 
-Pending orders remain listed until `Node.process_pending_orders()` is
-explicitly called. It logs each dry-run order to stdout, updates counters,
-marks the order completed, and completed orders no longer appear in
-`GET /orders`. There is no scheduler or HTTP processing trigger in this
-increment, so neither deployment processes orders automatically.
+Pending orders remain listed until the next one-minute processing cycle. The
+node logs each dry-run order to stdout, updates counters, marks it completed,
+and then omits it from `GET /orders`. There is no HTTP processing trigger;
+each running node processes its own queue automatically. If a cycle occurs
+between submitting an order and querying the queue, the order may already be
+completed and omitted from the response.
 
 ## Optional single-worker source check
 

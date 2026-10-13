@@ -4,6 +4,7 @@ import logging
 import os
 import platform
 import socket
+from threading import Lock
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -38,6 +39,7 @@ class Node:
         self.commands_received = 0
         self.commands_completed = 0
         self.order_queue = OrderQueue()
+        self._order_processing_lock = Lock()
         self.order_token = os.environ.get("ELVIS_ORDER_TOKEN") or config.get(
             "auth", "order_token", fallback=""
         )
@@ -47,20 +49,20 @@ class Node:
 
     def process_pending_orders(self) -> int:
         """Drain pending orders by logging what would happen; perform no action."""
-        processed = 0
-        while order := self.order_queue.take_next():
-            order.mark_processing()
-            self.commands_received += 1
+        with self._order_processing_lock:
+            orders = self.order_queue.take_pending_batch()
+            self.commands_received += len(orders)
+        for order in orders:
             self.logger.info(
                 "Dry run: would process order %s of kind %s from node %s",
                 order.order_id,
                 order.kind.value,
                 order.origin_node_id,
             )
-            order.mark_completed()
-            self.commands_completed += 1
-            processed += 1
-        return processed
+            with self._order_processing_lock:
+                self.order_queue.mark_completed(order)
+                self.commands_completed += 1
+        return len(orders)
 
     @staticmethod
     def parse_peer_list(config: configparser.ConfigParser, key: str) -> list[str]:
@@ -103,19 +105,21 @@ class Node:
         if auth_error is not None:
             return auth_error
 
-        return jsonify({
-            "orders": [
-                {
-                    "order_id": order.order_id,
-                    "origin_node_id": order.origin_node_id,
-                    "kind": order.kind.value,
-                    "payload": order.payload,
-                    "created_at": order.created_at.isoformat(),
-                    "status": order.status.value,
-                }
-                for order in self.order_queue.active_orders()
-            ]
-        })
+        with self._order_processing_lock:
+            orders = self.order_queue.active_orders()
+            return jsonify({
+                "orders": [
+                    {
+                        "order_id": order.order_id,
+                        "origin_node_id": order.origin_node_id,
+                        "kind": order.kind.value,
+                        "payload": order.payload,
+                        "created_at": order.created_at.isoformat(),
+                        "status": order.status.value,
+                    }
+                    for order in orders
+                ]
+            })
 
     def receive_order(self):
         auth_error = self._order_authorization_error("order submission unavailable")

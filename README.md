@@ -57,10 +57,10 @@ publishes the manager at host port `8081` and its two workers at host ports
 `8082` and `8083`. Every node exposes `GET /health` and `GET /info`. Manager
 and worker nodes also expose `GET /status`, which adds their peer tables to the
 base node info. Nodes accept `POST /orders`; each receiving node must have an
-`[auth] order_token` configured or `ELVIS_ORDER_TOKEN` set in its environment
-to require a shared bearer token. The sender must include the same value in
-the `Authorization` header using the `Bearer` scheme. The endpoint only
-validates and enqueues an order; processing remains an explicit dry run through
+`[auth] order_token` configured or `ELVIS_ORDER_TOKEN` set in its environment.
+Both `GET /orders` and `POST /orders` require the shared bearer token. The
+POST endpoint validates and enqueues an order; each node automatically drains
+its local queue every 60 seconds in dry-run mode through
 `Node.process_pending_orders()`.
 
 ```bash
@@ -152,7 +152,8 @@ unset ELVIS_ORDER_TOKEN
 The script displays each request and its response body, HTTP status, and curl
 exit status. It submits a uniquely identified order to each node and then
 requests each node's active queue; it does not assert response contents or
-trigger order processing. It requires `curl` and Bash. Set
+explicitly trigger processing. A scheduled processing cycle may run while the
+script is executing. It requires `curl` and Bash. Set
 `ELVIS_MANAGER_URL`, `ELVIS_WORKER1_URL`, or `ELVIS_WORKER2_URL` to override
 the corresponding localhost URL. Do not commit the secret in a config file or
 source code. The demo configuration files are copied into the container image

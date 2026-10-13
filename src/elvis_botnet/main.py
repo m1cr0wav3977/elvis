@@ -1,6 +1,18 @@
 import argparse
 import configparser
 import logging
+from threading import Event, Thread
+
+from elvis_botnet.node import Node
+
+
+def process_orders_periodically(
+    node: Node,
+    stop_event: Event,
+    interval_seconds: float = 60.0,
+) -> None:
+    while not stop_event.wait(interval_seconds):
+        node.process_pending_orders()
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,10 +46,21 @@ def main() -> None:
         logging.error("Invalid node type specified in %s", args.config)
         return
 
-    node.run(
-        host=config["node"].get("host", "0.0.0.0"),
-        port=config["node"].getint("port", 8080),
+    stop_event = Event()
+    order_processor = Thread(
+        target=process_orders_periodically,
+        args=(node, stop_event),
+        name=f"{node.node_type}-order-processor",
     )
+    order_processor.start()
+    try:
+        node.run(
+            host=config["node"].get("host", "0.0.0.0"),
+            port=config["node"].getint("port", 8080),
+        )
+    finally:
+        stop_event.set()
+        order_processor.join()
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 import configparser
+from threading import Event
 
 import pytest
 
 from elvis_botnet.manager import Manager
+from elvis_botnet.main import process_orders_periodically
 from elvis_botnet.order import Order, OrderStatus, OrderType
 from elvis_botnet.worker import Worker
 
@@ -327,3 +329,23 @@ def test_node_drains_orders_in_dry_run_and_retains_status(caplog):
     assert worker.commands_received == 2
     assert worker.commands_completed == 2
     assert "Dry run: would process order first" in caplog.text
+
+
+def test_periodic_processor_drains_orders_and_stops(monkeypatch):
+    worker = make_worker()
+    order = make_order("scheduled")
+    worker.order_queue.enqueue(order)
+    stop_event = Event()
+    process_pending_orders = worker.process_pending_orders
+
+    def process_once():
+        processed = process_pending_orders()
+        stop_event.set()
+        return processed
+
+    monkeypatch.setattr(worker, "process_pending_orders", process_once)
+    process_orders_periodically(worker, stop_event, interval_seconds=0.001)
+
+    assert order.status is OrderStatus.COMPLETED
+    assert worker.commands_received == 1
+    assert worker.commands_completed == 1
